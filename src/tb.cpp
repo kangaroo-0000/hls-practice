@@ -9,7 +9,7 @@ void matmatmul_sw(DTYPE A[SIZE][SIZE], DTYPE B[SIZE][SIZE],
     for (int j = 0; j < SIZE; j++) {
       sum = 0;
       for (int k = 0; k < SIZE; k++) {
-        sum = sum + A[i][k] ∗ B[k][j];
+        sum = sum + A[i][k] * B[k][j];
       }
       out[i][j] = sum;
     }
