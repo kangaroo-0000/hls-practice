@@ -1,67 +1,37 @@
 #include "matrix_multiplication.h"
 
-#include <iostream>
-
 #include "hls_stream.h"
 #include "hls_vector.h"
 
-void mm(DTYPE *A, hls::vector<DTYPE, DSIZE> *B, hls::vector<DTYPE, DSIZE> *AB,
-        int N) {
+void blockmatmul(hls::stream<blockvec> &Arows, hls::stream<blockvec> &Bcols,
+                 blockmat &ABpartial, int it) {
 #pragma HLS DATAFLOW
-  hls::stream<hls::vector<DTYPE, DSIZE> > A_fifo;
-  hls::stream<hls::vector<DTYPE, DSIZE> > B_fifo;
-  hls::stream<hls::vector<DTYPE, DSIZE> > AB_fifo;
-  ReadA(A, A_fifo, N);
-  ReadB(B, B_fifo, N);
-  Compute(A_fifo, B_fifo, AB_fifo, N);
-  WriteAB(AB, AB_fifo, N);
-}
-
-void ReadA(DTYPE *A, hls::stream<hls::vector<DTYPE, DSIZE> > &A_fifo, int N) {
-  for (int i = 0; i < N; i += DSIZE) {
-    hls::vector<DTYPE, DSIZE> tmp;
-    for (int j = 0; j < DSIZE; j++) {
-#pragma HLS PIPELINE
-      tmp[j] = A[i + j];
+  int counter = it % (SIZE / BLOCK_SIZE);
+  static DTYPE A[BLOCK_SIZE][SIZE];
+  if (counter == 0) {  // only load the A rows when necessary
+  loadA:
+    for (int i = 0; i < SIZE; i++) {
+      blockvec tempA = Arows.read();
+      for (int j = 0; j < BLOCK_SIZE; j++) {
+#pragma HLS PIPELINE II = 1
+        A[j][i] = tempA.a[j];
+      }
     }
-    A_fifo << tmp;
   }
-}
-
-void ReadB(hls::vector<DTYPE, DSIZE> *B,
-           hls::stream<hls::vector<DTYPE, DSIZE> > &B_fifo, int N) {
-  for (int i = 0; i < N; i += DSIZE) {
-    hls::vector<DTYPE, DSIZE> tmp;
-    for (int j = 0; j < DSIZE; j++) {
-#pragma HLS PIPELINE
-      tmp[j] = B[i + j];
+  DTYPE AB[BLOCK_SIZE][BLOCK_SIZE] = {0};
+partialsum:
+  for (int k = 0; k < SIZE; k++) {
+    blockvec tempB = Bcols.read();
+    for (int i = 0; i < BLOCK_SIZE; i++) {
+      for (int j = 0; j < BLOCK_SIZE; j++) {
+        AB[i][j] = AB[i][j] + A[i][k] * tempB.a[j];
+      }
     }
-    B_fifo << tmp;
   }
-}
-
-void Compute(hls::stream<hls::vector<DTYPE, DSIZE> > &A_fifo,
-             hls::stream<hls::vector<DTYPE, DSIZE> > &B_fifo,
-             hls::stream<hls::vector<DTYPE, DSIZE> > &AB_fifo, int N) {
-  for (int i = 0; i < N; i += DSIZE) {
-    hls::vector<DTYPE, DSIZE> tmpA = A_fifo.read();
-    hls::vector<DTYPE, DSIZE> tmpB = B_fifo.read();
-    hls::vector<DTYPE, DSIZE> tmpAB;
-    for (int j = 0; j < DSIZE; j++) {
-#pragma HLS PIPELINE
-      tmpAB[j] = tmpA[j] * tmpB[j];
-    }
-    AB_fifo << tmpAB;
-  }
-}
-
-void WriteAB(hls::vector<DTYPE, DSIZE> *AB,
-             hls::stream<hls::vector<DTYPE, DSIZE> > &AB_fifo, int N) {
-  for (int i = 0; i < N; i += DSIZE) {
-    hls::vector<DTYPE, DSIZE> tmp = AB_fifo.read();
-    for (int j = 0; j < DSIZE; j++) {
-#pragma HLS PIPELINE
-      AB[i + j] = tmp[j];
+writeoutput:
+  for (int i = 0; i < BLOCK_SIZE; i++) {
+    for (int j = 0; j < BLOCK_SIZE; j++) {
+      ABpartial.out[i][j] = AB[i][j];
     }
   }
 }
